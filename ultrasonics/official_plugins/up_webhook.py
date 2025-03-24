@@ -66,7 +66,7 @@ def builder(**kwargs):
         },
         {
             "type": "string",
-            "value": "You should make sure whatever is performing this web request has access to the url. You can define a port and root path below, the port cannot be the same as ultrasonics (5000) or any other instance of the webhook trigger."
+            "value": "You should make sure whatever is performing this web request has access to the url. You can define a port and root path below, the port cannot be the same as ultrasonics (8080) or any other instance of the webhook trigger."
         },
         {
             "type": "text",

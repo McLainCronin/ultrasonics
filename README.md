@@ -137,7 +137,7 @@ services:
     restart: unless-stopped
 
     ports:
-      - 5000:5000
+      - 8080:8080
 
     volumes:
       - /path/to/config:/config

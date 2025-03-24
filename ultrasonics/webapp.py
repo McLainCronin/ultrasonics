@@ -20,13 +20,13 @@ log = logs.create_log(__name__)
 
 app = Flask(__name__)
 
-sio = SocketIO(app, async_mode='eventlet')
+sio = SocketIO(app, async_mode='threading')
 
 
 # --- GENERAL ---
 def server_start():
     log.debug("Starting webserver")
-    sio.run(app, host="0.0.0.0", debug=os.environ.get(
+    sio.run(app, host="0.0.0.0", port=8080, debug=os.environ.get(
         'FLASK_DEBUG') == "True" or False)
 
 

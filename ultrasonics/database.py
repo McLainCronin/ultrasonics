@@ -55,7 +55,7 @@ class Core:
             "type": "text",
             "label": "ultrasonics-api URL",
             "name": "api_url",
-            "value": "https://ultrasonics-api.herokuapp.com/api/"
+            "value": "http://localhost:3000/api/"
         },
         {
             "type": "string",
