@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 
 """
-fuzzymatch
-Fuzzy-string song matching tool for ultrasonics.
+rapidfuzz-based fuzzy-string song matching tool
 
 Given an input song, input playlist data, and a threshold, the song is checked for duplicates,
 returning True if one is found. The weighting for each song field is:
@@ -16,12 +15,12 @@ returning True if one is found. The weighting for each song field is:
 
 It goes without saying that inaccurate music tags (such as from local files) may produce inaccurate results.
 
-XDGFX, 2020
+XDGFX, 2020, updated 2025
 """
 
 import re
 
-from fuzzywuzzy import fuzz, process
+from rapidfuzz import fuzz, process
 
 from ultrasonics import logs
 
@@ -29,8 +28,8 @@ log = logs.create_log(__name__)
 
 # List of words and patterns to ignore when testing similarity
 cutoff_regex = [
-    "[([](feat|ft|featuring|original|prod).+?[)\]]",
-    "[ (\- )\-]+(feat|ft|featuring|original|prod).+?(?=[(\n])"
+    r"\[(\[](feat|ft|featuring|original|prod).+?[)\]]",
+    r"[ (\- )\-]+(feat|ft|featuring|original|prod).+?(?=[(\n])"
 ]
 
 

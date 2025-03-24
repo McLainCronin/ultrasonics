@@ -1,13 +1,19 @@
 # Main Program
-Flask==2.0.1
-Flask-SocketIO==5.1.1
-eventlet==0.32.0
+Flask==3.0.2
+Flask-SocketIO==5.3.6
+eventlet==0.35.2
+
+# Core Dependencies
+Werkzeug>=3.0.0
+python-socketio>=5.0.2
+dnspython>=1.15.0
+greenlet>=1.0
 
 # Included Plugins
+# Keeping plugin versions unchanged for now to ensure compatibility
 mutagen==1.45.1
 requests==2.26.0
-fuzzywuzzy==0.18.0
-python-Levenshtein==0.12.2
+rapidfuzz>=3.6.1
 spotipy==2.19.0
 tqdm==4.62.3
 PlexAPI==4.7.2
