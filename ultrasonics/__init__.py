@@ -3,7 +3,8 @@
 """
 Ultrasonics - A modern music automation platform
 
-XDGFX, 2020, updated 2025
+Original work by XDGFX, 2020
+Updated and modernized by McLain Cronin, 2025
 """
 
 import os
@@ -32,8 +33,10 @@ def create_app(test_config=None):
     database.Core().connect()
     
     # Register blueprints
-    from ultrasonics.webapp import main
-    app.register_blueprint(main.bp)
+    from ultrasonics.webapp.routes import applets, plugins, settings
+    app.register_blueprint(applets.bp)
+    app.register_blueprint(plugins.bp)
+    app.register_blueprint(settings.bp)
     
     # Initialize plugins
     plugins.plugin_gather()

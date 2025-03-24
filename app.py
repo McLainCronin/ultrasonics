@@ -4,12 +4,14 @@
 app
 Main ultrasonics entrypoint. Run this to start ultrasonics.
 
-XDGFX, 2020
+Original work by XDGFX, 2020
+Updated and modernized by McLain Cronin, 2025
 """
 
 import os
 
-from ultrasonics import database, plugins, scheduler, webapp
+from ultrasonics import database, plugins, scheduler
+from ultrasonics.webapp import server_start
 
 _ultrasonics = {
     "version": "1.0.0-rc.1",
@@ -19,4 +21,4 @@ _ultrasonics = {
 database.Core().connect()
 plugins.plugin_gather()
 scheduler.scheduler_start()
-webapp.server_start()
+server_start()
