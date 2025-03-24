@@ -8,6 +8,17 @@ Werkzeug>=3.0.0
 python-socketio>=5.0.2
 dnspython>=1.15.0
 greenlet>=1.0
+aiohttp>=3.9.3
+SQLAlchemy>=2.0.27
+alembic>=1.13.1
+python-dotenv>=1.0.1
+pydantic>=2.6.1
+pydantic-settings>=2.1.0
+cryptography>=42.0.0
+
+# Database
+mysqlclient>=2.2.4
+aiomysql>=0.2.0
 
 # Included Plugins
 # Keeping plugin versions unchanged for now to ensure compatibility
@@ -17,3 +28,14 @@ rapidfuzz>=3.6.1
 spotipy==2.19.0
 tqdm==4.62.3
 PlexAPI==4.7.2
+
+# Testing
+pytest>=8.0.0
+pytest-asyncio>=0.23.5
+pytest-cov>=4.1.0
+
+# Development
+black>=24.1.1
+isort>=5.13.2
+mypy>=1.8.0
+ruff>=0.2.1

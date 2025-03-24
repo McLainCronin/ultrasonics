@@ -4,7 +4,8 @@
 config
 Configuration settings for the Flask application.
 
-XDGFX, 2020, updated 2025
+Original work by XDGFX, 2020
+Updated and modernized by McLain Cronin, 2025
 """
 
 import os
@@ -20,7 +21,14 @@ class Config:
     PORT = int(os.environ.get('PORT') or 8080)
     
     # Database settings
-    DATABASE = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config', 'ultrasonics.db')
+    DB_USER = os.environ.get('DB_USER', 'ultrasonics')
+    DB_PASSWORD = os.environ.get('DB_PASSWORD', 'ultrasonics')
+    DB_HOST = os.environ.get('DB_HOST', 'localhost')
+    DB_PORT = os.environ.get('DB_PORT', '3306')
+    DB_NAME = os.environ.get('DB_NAME', 'ultrasonics')
+    
+    SQLALCHEMY_DATABASE_URI = f'mysql+aiomysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}'
+    SQLALCHEMY_TRACK_MODIFICATIONS = False
     
     # Plugin settings
     PLUGIN_DIRS = [

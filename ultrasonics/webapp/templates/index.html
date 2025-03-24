@@ -1,0 +1,184 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="bg-white shadow rounded-lg p-6">
+    <div class="flex items-center justify-between mb-6">
+        <h1 class="text-2xl font-bold text-gray-900">Dashboard</h1>
+        <div class="flex space-x-4">
+            <button onclick="location.href='/applets'" class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                <i class="fas fa-plus mr-2"></i> New Applet
+            </button>
+        </div>
+    </div>
+
+    <!-- Stats Overview -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        <div class="bg-indigo-50 rounded-lg p-6">
+            <div class="flex items-center">
+                <div class="p-3 rounded-full bg-indigo-100">
+                    <i class="fas fa-cube text-indigo-600 text-xl"></i>
+                </div>
+                <div class="ml-4">
+                    <h2 class="text-sm font-medium text-gray-600">Active Applets</h2>
+                    <p class="text-2xl font-semibold text-gray-900" id="active-applets-count">0</p>
+                </div>
+            </div>
+        </div>
+        <div class="bg-green-50 rounded-lg p-6">
+            <div class="flex items-center">
+                <div class="p-3 rounded-full bg-green-100">
+                    <i class="fas fa-plug text-green-600 text-xl"></i>
+                </div>
+                <div class="ml-4">
+                    <h2 class="text-sm font-medium text-gray-600">Installed Plugins</h2>
+                    <p class="text-2xl font-semibold text-gray-900" id="installed-plugins-count">0</p>
+                </div>
+            </div>
+        </div>
+        <div class="bg-blue-50 rounded-lg p-6">
+            <div class="flex items-center">
+                <div class="p-3 rounded-full bg-blue-100">
+                    <i class="fas fa-clock text-blue-600 text-xl"></i>
+                </div>
+                <div class="ml-4">
+                    <h2 class="text-sm font-medium text-gray-600">Last Run</h2>
+                    <p class="text-2xl font-semibold text-gray-900" id="last-run-time">Never</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Recent Activity -->
+    <div class="mb-8">
+        <h2 class="text-lg font-medium text-gray-900 mb-4">Recent Activity</h2>
+        <div class="bg-white shadow overflow-hidden sm:rounded-md">
+            <ul class="divide-y divide-gray-200" id="recent-activity">
+                <!-- Activity items will be populated by JavaScript -->
+            </ul>
+        </div>
+    </div>
+
+    <!-- System Status -->
+    <div>
+        <h2 class="text-lg font-medium text-gray-900 mb-4">System Status</h2>
+        <div class="bg-gray-50 rounded-lg p-6">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                    <h3 class="text-sm font-medium text-gray-500">Database Status</h3>
+                    <p class="mt-1 text-sm text-gray-900" id="database-status">Checking...</p>
+                </div>
+                <div>
+                    <h3 class="text-sm font-medium text-gray-500">WebSocket Status</h3>
+                    <p class="mt-1 text-sm text-gray-900" id="websocket-status">Checking...</p>
+                </div>
+                <div>
+                    <h3 class="text-sm font-medium text-gray-500">Scheduler Status</h3>
+                    <p class="mt-1 text-sm text-gray-900" id="scheduler-status">Checking...</p>
+                </div>
+                <div>
+                    <h3 class="text-sm font-medium text-gray-500">System Uptime</h3>
+                    <p class="mt-1 text-sm text-gray-900" id="system-uptime">Checking...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Initialize WebSocket connection
+    const ws = new WebSocket(`ws://${window.location.host}/ws`);
+    
+    ws.onopen = function() {
+        document.getElementById('websocket-status').textContent = 'Connected';
+        document.getElementById('websocket-status').classList.add('text-green-600');
+    };
+    
+    ws.onclose = function() {
+        document.getElementById('websocket-status').textContent = 'Disconnected';
+        document.getElementById('websocket-status').classList.add('text-red-600');
+    };
+    
+    ws.onmessage = function(event) {
+        const data = JSON.parse(event.data);
+        updateDashboard(data);
+    };
+
+    // Fetch initial data
+    fetchInitialData();
+});
+
+async function fetchInitialData() {
+    try {
+        const [applets, plugins, status] = await Promise.all([
+            fetch('/api/applets').then(r => r.json()),
+            fetch('/api/plugins').then(r => r.json()),
+            fetch('/api/status').then(r => r.json())
+        ]);
+
+        updateDashboard({
+            applets: applets,
+            plugins: plugins,
+            status: status
+        });
+    } catch (error) {
+        console.error('Error fetching initial data:', error);
+    }
+}
+
+function updateDashboard(data) {
+    // Update counts
+    if (data.applets) {
+        document.getElementById('active-applets-count').textContent = 
+            data.applets.filter(a => a.status === 'active').length;
+    }
+    
+    if (data.plugins) {
+        document.getElementById('installed-plugins-count').textContent = data.plugins.length;
+    }
+
+    // Update system status
+    if (data.status) {
+        document.getElementById('database-status').textContent = data.status.database;
+        document.getElementById('scheduler-status').textContent = data.status.scheduler;
+        document.getElementById('system-uptime').textContent = data.status.uptime;
+    }
+
+    // Update recent activity
+    if (data.activity) {
+        const activityList = document.getElementById('recent-activity');
+        activityList.innerHTML = data.activity.map(item => `
+            <li class="px-4 py-4 sm:px-6">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center">
+                        <i class="fas ${getActivityIcon(item.type)} text-gray-400 mr-3"></i>
+                        <p class="text-sm font-medium text-gray-900">${item.message}</p>
+                    </div>
+                    <div class="ml-2 flex-shrink-0 flex">
+                        <p class="text-sm text-gray-500">${formatTime(item.timestamp)}</p>
+                    </div>
+                </div>
+            </li>
+        `).join('');
+    }
+}
+
+function getActivityIcon(type) {
+    const icons = {
+        'applet': 'fa-cube',
+        'plugin': 'fa-plug',
+        'system': 'fa-server',
+        'error': 'fa-exclamation-circle',
+        'success': 'fa-check-circle'
+    };
+    return icons[type] || 'fa-info-circle';
+}
+
+function formatTime(timestamp) {
+    const date = new Date(timestamp);
+    return date.toLocaleString();
+}
+</script>
+{% endblock %} 

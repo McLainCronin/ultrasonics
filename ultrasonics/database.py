@@ -2,30 +2,41 @@
 
 """
 database
-Handles all connections with the ultrasonics sqlite database.
+Handles all connections with the ultrasonics MySQL database.
 
-XDGFX, 2020
+Original work by XDGFX, 2020
+Updated and modernized by McLain Cronin, 2025
 """
 
-import ast
 import os
-import sqlite3
-import uuid
+import json
+from datetime import datetime
+from typing import Optional, Dict, Any, List
+
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy import select, update, insert, delete
+from dotenv import load_dotenv
 
 from ultrasonics import logs
+from ultrasonics.models import Base, User, Playlist, Song, Plugin
 
 log = logs.create_log(__name__)
 
-db_file = "config/ultrasonics.db"
-conn = None
-cursor = None
+# Load environment variables
+load_dotenv()
 
-try:
-    os.mkdir("config")
-except FileExistsError:
-    # Folder already exists
-    pass
+# Database configuration
+DB_USER = os.getenv("DB_USER", "ultrasonics")
+DB_PASSWORD = os.getenv("DB_PASSWORD", "ultrasonics2025G%%")
+DB_HOST = os.getenv("DB_HOST", "localhost")
+DB_PORT = os.getenv("DB_PORT", "3306")
+DB_NAME = os.getenv("DB_NAME", "ultrasonics")
 
+# Create async engine
+DATABASE_URL = f"mysql+aiomysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+engine = create_async_engine(DATABASE_URL, echo=True)
+async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 class Core:
     """
@@ -73,153 +84,113 @@ class Core:
         }
     ]
 
-    def connect(self):
+    async def connect(self):
         """
         Initial connection to database to create tables.
         """
-        with sqlite3.connect(db_file) as conn:
-            from app import _ultrasonics
-
-            cursor = conn.cursor()
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
             log.info("Database connection successful")
 
-            if self.new_install() is None:
+            if await self.new_install():
+                from app import _ultrasonics
                 _ultrasonics["new_install"] = True
 
                 # Create tuple with default settings
                 global_settings_database = [(item["name"], item["value"])
-                                            for item in self.settings if item["type"] in ["text", "radio", "select"]]
+                                         for item in self.settings if item["type"] in ["text", "radio", "select"]]
 
-                # Create persistent settings table if needed
-                query = "CREATE TABLE IF NOT EXISTS ultrasonics (key TEXT, value TEXT)"
-                cursor.execute(query)
+                # Insert initial settings
+                for key, value in list(_ultrasonics.items()) + global_settings_database:
+                    await conn.execute(
+                        insert(User).values(username=key, email=value)
+                    )
 
-                query = "INSERT INTO ultrasonics (key, value) VALUES(?, ?)"
-                cursor.executemany(query, list(_ultrasonics.items()))
-
-                query = "INSERT INTO ultrasonics (key, value) VALUES(?, ?)"
-                cursor.executemany(query, global_settings_database)
-
-            # Create persistent settings table if needed
-            query = "CREATE TABLE IF NOT EXISTS plugins (id INTEGER PRIMARY KEY, plugin TEXT, version FLOAT, settings TEXT)"
-            cursor.execute(query)
-
-            # Create applet table if needed
-            query = "CREATE TABLE IF NOT EXISTS applets (id TEXT PRIMARY KEY, lastrun TEXT, data TEXT)"
-            cursor.execute(query)
-
-            conn.commit()
+                await conn.commit()
 
             # Version check
-            query = "SELECT value FROM ultrasonics WHERE key = 'version'"
-            cursor.execute(query)
-            rows = cursor.fetchall()
-            version = rows[0][0]
+            result = await conn.execute(
+                select(User.email).where(User.username == 'version')
+            )
+            version = result.scalar()
 
             if version != _ultrasonics["version"]:
                 log.warning(
                     "Installed ultrasonics version does not match database version! Proceed with caution.")
 
-    def new_install(self, update=False):
+    async def new_install(self, update: bool = False) -> bool:
         """
         Check if this is a new installation of ultrasonics.
         """
-        with sqlite3.connect(db_file) as conn:
-            cursor = conn.cursor()
+        async with engine.begin() as conn:
             if update:
-                query = "UPDATE ultrasonics SET value = 0 WHERE key = 'new_install'"
-                cursor.execute(query)
-                conn.commit()
+                await conn.execute(
+                    update(User).where(User.username == 'new_install').values(email='0')
+                )
+                await conn.commit()
                 log.info("Welcome to ultrasonics! 🔊")
+                return False
             else:
                 # Check if database exists
-                query = "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'ultrasonics'"
-                cursor.execute(query)
-                rows = cursor.fetchall()
+                result = await conn.execute(
+                    select(User).where(User.username == 'new_install')
+                )
+                row = result.first()
+                return row is None
 
-                result = rows[0][0]
-
-                # Table does not exist
-                if not result:
-                    return None
-
-                query = "SELECT value FROM ultrasonics WHERE key = 'new_install'"
-                cursor.execute(query)
-                rows = cursor.fetchall()
-
-                result = rows[0][0]
-
-                return result == '1'
-
-    def load(self, raw=False):
+    async def load(self, raw: bool = False) -> Dict[str, Any]:
         """
         Return all the current global settings in full dict format.
         If raw, return only key: value dict
         """
-        import copy
-
-        with sqlite3.connect(db_file) as conn:
-            cursor = conn.cursor()
-            query = "SELECT key, value FROM ultrasonics"
-            cursor.execute(query)
-            rows = cursor.fetchall()
+        async with engine.begin() as conn:
+            result = await conn.execute(select(User))
+            rows = result.fetchall()
 
             if raw:
-                data = {}
-
-                for key, value in rows:
-                    data[key] = value
-
+                return {row.username: row.email for row in rows}
             else:
-                data = copy.deepcopy(self.settings)
-
+                data = self.settings.copy()
                 db_compatible_settings = [
                     item["name"] for item in data if item["type"] in ["text", "radio", "select"]]
 
-                for key, value in rows:
-                    # Check if database setting is to be displayed (excluding version, new_install)
-                    if key in db_compatible_settings:
+                for row in rows:
+                    if row.username in db_compatible_settings:
                         for i, item in enumerate(data):
-                            if "name" in item and item["name"] == key:
-                                # If setting matches database item, update the value
-                                item["value"] = value
+                            if "name" in item and item["name"] == row.username:
+                                item["value"] = row.email
                                 data[i] = item
-            return data
+                return data
 
-    def save(self, settings):
+    async def save(self, settings: Dict[str, Any]) -> None:
         """
-        Save a list of global settings tuples to the database.
+        Save a list of global settings to the database.
         """
         # Add trailing slash to auth url
         if settings["api_url"][-1] != "/":
             settings["api_url"] = settings["api_url"] + "/"
 
-        # Generate key, value tuples (reversed for database entry) from supplied form data
-        data = [(value, key)
-                for key, value in settings.items() if key != "action"]
-
-        with sqlite3.connect(db_file) as conn:
-            cursor = conn.cursor()
-            query = "UPDATE ultrasonics SET value = ? WHERE key = ?"
-            cursor.executemany(query, data)
-
-            conn.commit()
+        async with engine.begin() as conn:
+            for key, value in settings.items():
+                if key != "action":
+                    await conn.execute(
+                        update(User)
+                        .where(User.username == key)
+                        .values(email=value)
+                    )
+            await conn.commit()
             log.info("Settings database updated")
 
-    def get(self, key):
+    async def get(self, key: str) -> Optional[str]:
         """
         Get a specific value from the ultrasonics core database.
         """
-        with sqlite3.connect(db_file) as conn:
-            cursor = conn.cursor()
-            query = "SELECT value FROM ultrasonics WHERE key = ?"
-            cursor.execute(query, (key,))
-            rows = cursor.fetchall()
-
-            try:
-                return rows[0][0]
-            except IndexError:
-                return None
+        async with engine.begin() as conn:
+            result = await conn.execute(
+                select(User.email).where(User.username == key)
+            )
+            row = result.first()
+            return row[0] if row else None
 
 
 class Plugin:
@@ -227,63 +198,59 @@ class Plugin:
     Functions specific to plugin data.
     """
 
-    def new(self, name, version):
+    async def new(self, name: str, version: str) -> None:
         """
         Create a database entry for a given plugin.
         """
-        with sqlite3.connect(db_file) as conn:
-            cursor = conn.cursor()
-            query = "INSERT INTO plugins (plugin, version) VALUES (?,?)"
-            cursor.execute(query, (str(name), str(version)))
-            conn.commit()
+        async with engine.begin() as conn:
+            await conn.execute(
+                insert(Plugin).values(
+                    name=name,
+                    version=version,
+                    enabled=True,
+                    config={}
+                )
+            )
+            await conn.commit()
             log.info("Plugin database entry created")
 
-    def set(self, name, version, settings):
+    async def set(self, name: str, version: str, settings: Dict[str, Any]) -> None:
         """
         Update an existing plugin entry in the database.
         """
-        with sqlite3.connect(db_file) as conn:
-            cursor = conn.cursor()
-            query = "UPDATE plugins SET settings = ? WHERE plugin = ? AND version = ?"
-            cursor.execute(query, (str(settings), name, version))
-            conn.commit()
+        async with engine.begin() as conn:
+            await conn.execute(
+                update(Plugin)
+                .where(Plugin.name == name)
+                .values(
+                    version=version,
+                    config=settings
+                )
+            )
+            await conn.commit()
             log.info("Plugin database entry updated")
 
-    def versions(self, name):
+    async def get(self, name: str) -> Optional[Dict[str, Any]]:
         """
-        Find plugins with a given name, and return the versions of plugins configured for the database.
+        Get plugin settings from the database.
         """
-        with sqlite3.connect(db_file) as conn:
-            cursor = conn.cursor()
-            query = "SELECT version FROM plugins WHERE plugin = ?"
-            cursor.execute(query, (name,))
-            rows = cursor.fetchall()
+        async with engine.begin() as conn:
+            result = await conn.execute(
+                select(Plugin).where(Plugin.name == name)
+            )
+            plugin = result.first()
+            return plugin.config if plugin else None
 
-            if len(rows) > 0:
-                versions = list()
-                for item in rows:
-                    versions.append(str(item[0]))
-                return versions
-            else:
-                return [False]
-
-    def get(self, name, version):
+    async def delete(self, name: str) -> None:
         """
-        Load the settings from a specific plugin in the database.
+        Delete a plugin from the database.
         """
-        with sqlite3.connect(db_file) as conn:
-            cursor = conn.cursor()
-            query = "SELECT settings FROM plugins WHERE plugin = ? AND version = ?"
-            cursor.execute(query, (name, version))
-            rows = cursor.fetchall()
-
-            settings = rows[0][0]
-
-            if settings is not None:
-                import ast
-                settings = ast.literal_eval(settings)
-
-            return settings
+        async with engine.begin() as conn:
+            await conn.execute(
+                delete(Plugin).where(Plugin.name == name)
+            )
+            await conn.commit()
+            log.info("Plugin database entry deleted")
 
 
 class Applet:
@@ -291,87 +258,52 @@ class Applet:
     Functions specific to applet data.
     """
 
-    def gather(self):
+    async def new(self, applet_id: str, data: Dict[str, Any]) -> None:
         """
-        Return all the applets stored in the database.
+        Create a new applet in the database.
         """
-        with sqlite3.connect(db_file) as conn:
-            cursor = conn.cursor()
-            query = "SELECT id, lastrun, data FROM applets"
-            cursor.execute(query)
-            rows = cursor.fetchall()
-
-            if rows is None:
-                return []
-
-            data = []
-
-            for applet_id, applet_lastrun, applet_plans in rows:
-                if applet_lastrun is None:
-                    data.append(
-                        {
-                            "applet_id": applet_id,
-                            "applet_plans": ast.literal_eval(applet_plans)
-                        }
-                    )
-                else:
-                    data.append(
-                        {
-                            "applet_id": applet_id,
-                            "applet_plans": ast.literal_eval(applet_plans),
-                            "applet_lastrun": ast.literal_eval(applet_lastrun)
-                        }
-                    )
-            return data
-
-    def set(self, applet_id, data):
-        """
-        Create or update a new applet.
-        """
-        with sqlite3.connect(db_file) as conn:
-            cursor = conn.cursor()
-            query = "REPLACE INTO applets (id, data) VALUES (?,?)"
-            cursor.execute(
-                query, (str(applet_id), str(data)))
-            conn.commit()
+        async with engine.begin() as conn:
+            await conn.execute(
+                insert(Playlist).values(
+                    name=applet_id,
+                    description="Applet",
+                    extra_data=data
+                )
+            )
+            await conn.commit()
             log.info("Applet database entry created")
 
-    def get(self, applet_id):
+    async def update(self, applet_id: str, data: Dict[str, Any]) -> None:
         """
-        Load an applet plans from it's unique id.
+        Update an existing applet in the database.
         """
-        with sqlite3.connect(db_file) as conn:
-            cursor = conn.cursor()
-            query = "SELECT data FROM applets WHERE id = ?"
-            cursor.execute(query, (applet_id, ))
-            rows = cursor.fetchall()
+        async with engine.begin() as conn:
+            await conn.execute(
+                update(Playlist)
+                .where(Playlist.name == applet_id)
+                .values(extra_data=data)
+            )
+            await conn.commit()
+            log.info("Applet database entry updated")
 
-            if rows == []:
-                return None
-            else:
-                # Convert from string to dict
-                applet_plans = ast.literal_eval(rows[0][0])
-                return applet_plans
+    async def get(self, applet_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get applet data from the database.
+        """
+        async with engine.begin() as conn:
+            result = await conn.execute(
+                select(Playlist).where(Playlist.name == applet_id)
+            )
+            applet = result.first()
+            return applet.extra_data if applet else None
 
-    def remove(self, applet_id):
+    async def delete(self, applet_id: str) -> None:
         """
         Delete an applet from the database.
         """
-        with sqlite3.connect(db_file) as conn:
-            cursor = conn.cursor()
-            query = "DELETE FROM applets WHERE id = ?"
-            cursor.execute(query, (applet_id,))
-            conn.commit()
+        async with engine.begin() as conn:
+            await conn.execute(
+                delete(Playlist).where(Playlist.name == applet_id)
+            )
+            await conn.commit()
             log.info("Applet database entry deleted")
-
-    def lastrun(self, applet_id, data):
-        """
-        Update the lastrun column for an applet with the supplied data.
-        """
-        with sqlite3.connect(db_file) as conn:
-            cursor = conn.cursor()
-            query = "UPDATE applets SET lastrun = ? WHERE id = ?"
-            cursor.execute(
-                query, (str(data), str(applet_id)))
-            conn.commit()
-            log.info("Applet lastrun updated")

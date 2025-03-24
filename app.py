@@ -9,6 +9,7 @@ Updated and modernized by McLain Cronin, 2025
 """
 
 import os
+import asyncio
 
 from ultrasonics import database, plugins, scheduler
 from ultrasonics.webapp import server_start
@@ -18,7 +19,19 @@ _ultrasonics = {
     "config_dir": os.path.join(os.path.dirname(__file__), "config")
 }
 
-database.Core().connect()
-plugins.plugin_gather()
-scheduler.scheduler_start()
-server_start()
+async def main():
+    """Main async entry point."""
+    # Initialize database
+    await database.Core().connect()
+    
+    # Initialize plugins
+    await plugins.plugin_gather()
+    
+    # Start scheduler
+    await scheduler.scheduler_start()
+    
+    # Start web server
+    await server_start()
+
+if __name__ == "__main__":
+    asyncio.run(main())

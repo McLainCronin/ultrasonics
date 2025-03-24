@@ -1,89 +1,83 @@
 #!/usr/bin/env python3
 
-import time
-from concurrent import futures
+"""
+scheduler
+Handles scheduling and execution of applets.
+
+Original work by XDGFX, 2020
+Updated and modernized by McLain Cronin, 2025
+"""
+
+import asyncio
+from typing import Dict, Optional
+from datetime import datetime
 
 from ultrasonics import database, logs, plugins
 
 log = logs.create_log(__name__)
 
-# Each applet has it's own key, where the value is True if applet should be running, or False if it needs to restart.
-applets_running = {}
-pool = futures.ThreadPoolExecutor(max_workers=256)
+# Each applet has its own key, where the value is True if applet should be running, or False if it needs to restart.
+applets_running: Dict[str, bool] = {}
 
 
-def scheduler_start():
+async def scheduler_start():
     """
     Sets up task scheduling for all applets currently in the database.
     """
-    applets = plugins.applet_gather()
+    applets = await plugins.applet_gather()
     for applet in applets:
         applet_id = applet["applet_id"]
-        applet_submit(applet_id)
+        await applet_submit(applet_id)
 
 
-def applet_submit(applet_id):
+async def applet_submit(applet_id: str):
     """
-    Submits an applet to the pool if it doesn't already exist.
+    Submits an applet to the scheduler if it doesn't already exist.
     """
-    if applet_id in applets_running.keys():
+    if applet_id in applets_running:
         # Signal that trigger should exit
         applets_running[applet_id] = False
 
         # Resubmit with a delay to allow the applet to exit
-        pool.submit(scheduler_applet_loop, applet_id,
-                    delay=trigger_poll())
+        await asyncio.sleep(await trigger_poll())
+        asyncio.create_task(scheduler_applet_loop(applet_id))
     else:
-        pool.submit(scheduler_applet_loop, applet_id)
+        asyncio.create_task(scheduler_applet_loop(applet_id))
 
 
-def scheduler_applet_loop(applet_id, delay=0):
+async def scheduler_applet_loop(applet_id: str):
     """
     Creates the main applet scheduler run loop.
     """
-    time.sleep(delay)
-    log.debug(f"Submitted applet '{applet_id}' to thread pool")
+    log.debug(f"Submitted applet '{applet_id}' to scheduler")
     applets_running[applet_id] = True
 
-    def ExecThread(applet_id):
+    while applets_running[applet_id]:
         try:
-            plugins.applet_trigger_run(applet_id)
+            # Run trigger
+            await plugins.applet_trigger_run(applet_id)
+            
+            # Check if applet still exists in the database
+            applet_data = await database.Applet().get(applet_id)
+            if applet_data is None:
+                break
+                
+            # Run applet
+            await plugins.applet_run(applet_id)
+            
+            # Wait for next trigger
+            await asyncio.sleep(await trigger_poll())
+            
         except Exception as e:
             # An error has occurred
             log.error(e, exc_info=True)
             applets_running[applet_id] = False
-            return True
-        else:
-            # No error, trigger finished
-            return False
-
-    while True:
-        # Create new thread for timer plugin
-        trigger_thread = pool.submit(
-            ExecThread, applet_id)
-
-        # Wait for trigger to complete
-        while not trigger_thread.done() and applets_running[applet_id]:
-            time.sleep(trigger_poll())
-
-        # Check if trigger has been removed
-        if not applets_running[applet_id]:
-            break
-
-        # If an error has occurred, future == True
-        if trigger_thread.result():
-            break
-
-        # Check if applet still exists in the database
-        if database.Applet().get(applet_id) is not None:
-            plugins.applet_run(applet_id)
-        else:
             break
 
 
-def trigger_poll():
+async def trigger_poll() -> int:
     """
     Gets the trigger_poll value from the ultrasonics database.
     """
-    trigger_poll = database.Core().get("trigger_poll")
+    trigger_poll = await database.Core().get("trigger_poll")
     return int(trigger_poll)
